@@ -121,6 +121,7 @@ table{width:100%;border-collapse:collapse;margin-top:10px}td,th{padding:10px 4px
 <main id="main"></main>
 <nav><button data-act="tab" data-v="home">🏠<span>홈</span></button><button data-act="tab" data-v="ledger">📒<span>가계부</span></button><button data-act="tab" data-v="stats">📊<span>통계</span></button><button data-act="tab" data-v="set">⚙️<span>설정</span></button></nav>
 <button class="fab" id="fab" data-act="add">＋ 지출 입력</button>
+<input type="file" id="rf" accept=".json,application/json" hidden>
 <div class="ov hidden" id="ov" data-act="bg"><div class="sheet" id="sh"></div></div>
 <script>
 
@@ -213,14 +214,16 @@ h+=`<div class="card"><h2>카테고리별 지출</h2>${donut(cats,t)}<div style=
 h+=`<div class="card"><h2>카드별 지출</h2>${bars(cards,t)}${tbl(cards,t,1)}</div>`;
 return h}
 
+const LB=()=>{try{const v=localStorage.getItem('gagyebu-lastBackup');return v?new Date(v).toLocaleString('ko-KR'):'없음'}catch{return'없음'}},setLB=()=>{try{localStorage.setItem('gagyebu-lastBackup',new Date().toISOString())}catch{}};
 const KIND={cards:{t:'결제 수단',f:'cardId',s:'cards'},categories:{t:'카테고리',f:'catId',s:'cats'}};
 function vSet(){
 if(!sv)return TOP+`<button class="menu" data-act="sv" data-v="cards"><b>결제 수단 관리</b><small>카드·현금 등 결제 수단을 추가하고 이름을 바꾸거나 지울 수 있어요.</small><i>›</i></button>
 <button class="menu" data-act="sv" data-v="categories"><b>카테고리 관리</b><small>지출 카테고리를 추가하고 이름을 바꾸거나 지울 수 있어요.</small><i>›</i></button>
 <button class="menu" data-act="sv" data-v="bk"><b>데이터 백업 및 복원</b><small>데이터를 파일로 저장해 두거나, 저장해 둔 파일에서 되살릴 수 있어요.</small><i>›</i></button>`;
 const back=TOP+`<button class="btn ghost back" data-act="sv" data-v="">← 설정으로 돌아가기</button>`;
-if(sv==='bk')return back+`<div class="card"><h2>데이터 백업 · 복원</h2><div class="sub">지출 ${S.expenses.length}건 저장됨 · <span id="pst">저장 상태 확인 중…</span><br>휴대폰 저장 공간 정리 등으로 데이터가 지워질 수 있으니 가끔 백업해 두세요.</div>
-<button class="btn full" data-act="backup">백업 파일 만들기 (JSON)</button><button class="btn ghost full" data-act="restore">백업 파일에서 복원</button><input type="file" id="rf" accept=".json,application/json" class="hidden"></div>`;
+if(sv==='bk')return back+sec('데이터 백업','',`<p class="muted">최근 백업: ${LB()}</p><button class="btn full" data-act="backup">백업 파일 저장 (JSON)</button>`)+
+sec('데이터 복원','',`<p class="muted">백업 파일을 불러오면 현재 데이터가 백업 내용으로 교체됩니다. 잘못된 파일은 거부되며 기존 데이터는 보호됩니다.</p><button class="btn full ghost" data-act="restore">백업 파일 불러오기</button>`)+
+sec('저장 상태','',`<p class="muted">데이터는 이 기기의 브라우저(IndexedDB)에만 저장됩니다.<br>영구 저장 권한: <span id="pst">확인 중…</span><br>현재 저장된 지출 ${S.expenses.length}건 · 결제 수단 ${S.cards.length}개 · 카테고리 ${S.cats.length}개</p>`);
 const k=sv,list=S[KIND[k].s];
 return back+`<div class="card"><h2>${KIND[k].t} 관리</h2>${list.map(c=>`<div class="li"><div class="g"><p>${esc(c.name)}</p></div><button class="btn sm ghost" data-act="ren" data-k="${k}" data-id="${c.id}">수정</button><button class="btn sm ghost" data-act="rm" data-k="${k}" data-id="${c.id}">삭제</button></div>`).join('')}
 <div class="arow"><input id="new-${k}" placeholder="새 ${KIND[k].t} 이름"><button class="btn" data-act="addItem" data-k="${k}">추가</button></div></div>`}
@@ -240,18 +243,19 @@ const ops=recs.map(e=>v==='__del'?['expenses','del',e.id]:['expenses','put',{...
 if(await save(()=>batch(ops),'삭제되었습니다'))closeSheet()}
 async function backup(){const data={app:'gagyebu',version:1,exportedAt:new Date().toISOString(),cards:S.cards,categories:S.cats,expenses:S.expenses};
 const name=`gagyebu-backup-${today()}.json`,file=new File([JSON.stringify(data,null,1)],name,{type:'application/json'});
-try{if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:name});toast('백업 파일을 저장/공유했어요 ✓');return}}catch(e){if(e.name==='AbortError')return}
-const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=name;document.body.append(a);a.click();a.remove();toast('백업 파일을 만들었어요 ✓')}
-async function doRestore(f){let d;try{d=JSON.parse(await f.text())}catch{return alert('백업 파일을 읽을 수 없어요. 올바른 파일인지 확인해주세요.')}
-if(!d||d.app!=='gagyebu'||!Array.isArray(d.expenses)||!Array.isArray(d.cards)||!Array.isArray(d.categories))return alert('이 앱의 백업 파일이 아니에요.');
-if(!(await dlg({title:'⚠️ 복원 확인',msg:`복원하면 지금 저장된 모든 데이터가 백업 파일의 내용으로 바뀝니다.<br><br>백업 내용: 지출 ${d.expenses.length}건<br>(백업 시각: ${esc((d.exportedAt||'').slice(0,10))})<br><br>계속할까요?`,ok:'복원하기',danger:1})))return;
+try{if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:name});setLB();toast('백업 파일을 저장/공유했어요 ✓');if(tab==='set'&&sv==='bk')render();return}}catch(e){if(e.name==='AbortError')return}
+const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000);setLB();toast('백업 파일을 만들었어요 ✓');if(tab==='set'&&sv==='bk')render()}
+async function doRestore(f){const keep='\n기존 데이터는 그대로 유지됩니다.';let d;
+try{d=JSON.parse(await f.text())}catch{return alert('복원 실패: 올바른 JSON 파일이 아니거나 손상되었습니다.'+keep)}
+if(!d||d.app!=='gagyebu'||!Array.isArray(d.expenses)||!Array.isArray(d.cards)||!Array.isArray(d.categories))return alert('복원 실패: 가계부(Money) 백업 파일이 아닙니다.'+keep);
+if(!confirm(`백업 시각: ${d.exportedAt?new Date(d.exportedAt).toLocaleString('ko-KR'):'알 수 없음'}\n지출 ${d.expenses.length} · 결제 수단 ${d.cards.length} · 카테고리 ${d.categories.length}\n\n현재 데이터가 이 백업으로 교체됩니다. 계속할까요?`))return;
 const ops=[['expenses','clear'],['cards','clear'],['categories','clear'],...d.cards.map(x=>['cards','put',x]),...d.categories.map(x=>['categories','put',x]),...d.expenses.map(x=>['expenses','put',x])];
-if(await save(()=>batch(ops),`복원 완료: 지출 ${d.expenses.length}건 ✓`)){tab='ledger';ym=today().slice(0,7);render()}}
+await save(()=>batch(ops),'복원이 완료되었습니다')}
 
 function render(){document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===tab));
 $('#fab').style.display=tab==='ledger'?'':'none';
 const m=$('#main'),y=m.scrollTop;m.innerHTML=tab==='home'?vHome():tab==='ledger'?vLedger():tab==='stats'?vStats():TOPSET();m.className=tab==='ledger'?'hasfab':'';m.scrollTop=y;
-if(tab==='set'&&sv==='bk'){const p=$('#pst');if(p&&navigator.storage&&navigator.storage.persisted)navigator.storage.persisted().then(v=>p.textContent=v?'기기 보호 저장 ON':'일반 저장')}}
+if(tab==='set'&&sv==='bk'){const p=$('#pst');if(p){if(navigator.storage&&navigator.storage.persisted)navigator.storage.persisted().then(v=>p.textContent=v?'허용됨':'미허용 (정기적으로 백업해 주세요)');else p.textContent='이 브라우저에서 지원하지 않음'}}}
 const TOPSET=()=>vSet();
 document.addEventListener('click',e=>{const t=e.target.closest('[data-act]');if(!t)return;const a=t.dataset.act,id=+t.dataset.id,k=t.dataset.k;
 if(a==='bg'){if(e.target.id==='ov')closeSheet();return}
@@ -262,7 +266,8 @@ document.addEventListener('change',e=>{const i=e.target.id;
 if(i==='mi'&&e.target.value){ym=e.target.value;render()}
 else if(i==='fc'){F.card=e.target.value;render()}else if(i==='fk'){F.cat=e.target.value;render()}
 else if(i==='fd'){F.date=e.target.value;if(F.date)ym=F.date.slice(0,7);render()}
-else if(i==='rf'&&e.target.files[0]){doRestore(e.target.files[0]);e.target.value=''}});
+});
+$('#rf').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)doRestore(f)};
 document.addEventListener('input',e=>{if(e.target.id==='f-a'){const n=e.target.value.replace(/\D/g,'').slice(0,12);e.target.value=n?(+n).toLocaleString('ko-KR'):''}
 else if(e.target.id==='fq'){F.q=e.target.value;const p=e.target.selectionStart;render();const q=$('#fq');q.focus();q.setSelectionRange(p,p)}});
 (async()=>{try{db=await openDB();await load();render();
